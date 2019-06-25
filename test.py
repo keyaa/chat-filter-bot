@@ -1,19 +1,22 @@
+import profanity_check as pc
 import discord
 
 client = discord.Client()
 
 @client.event
 async def on_ready():
-    print('We have logged in as {0.user}'.format(client))
+  print("Successfully logged in as {0.user}.".format(client))
 
 @client.event
 async def on_message(message):
-    if message.author == client.user:
-        return
+  if message.author == client.user: # don't reply to one's own messages
+    return
 
-    if message.content.startswith('$hello'):
-        await message.channel.send('Hello!')
+  # print(str(pc.predict_prob([message.content])[0]))
+
+  if pc.predict([message.content])[0]:
+    await message.channel.send("Hey! That's not good " + message.author.mention + "! "+ message.content)
+    await message.delete()
 
 with open("bot-token.txt", "r") as tokenfile:
-  token = tokenfile.read()
-  client.run(token)
+  client.run(tokenfile.read())
