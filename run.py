@@ -4,10 +4,10 @@ import profanity_check as pc
 import discord
 import asyncio
 
-mute_role = "muted"
-mod_role = "mod"
-custom_prefix = "."
-default_threshold = 0.8
+mute_role = "muted" # change to name of muted role in server
+mod_role = "mod" # change to name of mod role in server
+custom_prefix = "." # customizable prefix
+default_threshold = 0.8 # change threshold of potential swear messages (0.0 - 1.0)
 
 bot = commands.Bot(command_prefix=custom_prefix)
 blacklist = {}
@@ -19,14 +19,14 @@ def is_mod(invoker):
   return discord.utils.get(invoker.guild.roles, name=mod_role) in invoker.roles
 
 
-async def get_user(ctx, uid, usage_str):
+async def get_user(ctx, uid, bot_cmd):
   user = discord.utils.get(ctx.guild.members, id=int(uid.strip("<>@"))) # try to find user id
   if user == None:
     await ctx.send("User not found!")
-    await ctx.send(usage_str)
+    await usage(ctx, bot_cmd)
   elif user == bot.user:
     await ctx.send("Who, me?")
-    await ctx.send(usage_str)
+    await usage(ctx, bot_cmd)
   else:
     return user
 
@@ -39,6 +39,12 @@ def is_profane(message):
   if pc.predict([message])[0] > threshold_value: # after passing through fixed filter, use trained SVM model
     return True
   return False
+
+
+# another form of "usage" command
+@bot.command(pass_context=True)
+async def u(ctx):
+  await usage.invoke(ctx)
 
 
 # another form of "kick" command
@@ -83,6 +89,28 @@ async def m(ctx):
   await mute.invoke(ctx)
 
 
+# display bot commands
+@bot.command()
+async def usage(ctx, cmd=""):
+  commands = {
+    "usage" : "'.u[sage]', displays all commands.",
+    "reset" : "'.r[eset]', resets blacklist of banned words.",
+    "kick" : "'.k[ick] @user [reason]', kicks a user with optional reason.",
+    "threshold" : "'.t[hreshold] (0.0 - 1.0)', changes threshold detection for profanity filtering.",
+    "quiet" : "'.q[uiet]', toggles quiet mode on or off.",
+    "addword" : "'.a[ddword] (word)', adds a word to blacklist.",
+    "delete" : "'.d[elete] @user [# of messages to delete]', select a user's previous message to delete, or delete a number of previous messages.",
+    "mute" : "'.m[ute] @user [reason]', mutes/unmutes a user with optional reason.",
+  }
+  if cmd == "":
+    cmdstr = ""
+    for k, v in commands.items():
+      cmdstr += (k + ": " + v + "\n\n")
+    await ctx.send("```\nCommand: Usage\n\n" + cmdstr + "```")
+  else:
+    await ctx.send(commands[cmd])
+
+
 # kick specified user
 @bot.command()
 async def kick(ctx, *args):
@@ -94,7 +122,7 @@ async def kick(ctx, *args):
   def reaction_check(reaction, moderator): # needed to check if moderator reacted to messages by user
     return moderator == ctx.message.author and str(reaction.emoji) == "✅"
 
-  user = await get_user(ctx, args[0], "Usage: '.k[ick] @user [reason]")
+  user = await get_user(ctx, args[0], "kick")
   if user != None:
     message = await ctx.send("Are you sure you want to kick ? (10 second timeout)")
     await message.add_reaction("✅") # wait for response
@@ -151,19 +179,16 @@ async def threshold(ctx, new_t):
       await ctx.send("You don't have permission to do that!")
     return
 
-  async def usage():
-    await ctx.send("Usage:\n'.t[hreshold] (0.0 - 1.0)'")
-
   try: 
     threshold_value = float(new_t)
     if threshold_value < 0.0 or threshold_value > 1.0: # outside of valid probability range
       threshold_value = default_threshold # reset to default
-      await usage()
+      await usage(ctx, "threshold")
       return
     if not quiet_mode:
       await ctx.send("New threshold set to " + new_t + ".")
   except ValueError:
-    await usage()
+    await usage(ctx, "threshold")
     return
 
 
@@ -216,10 +241,10 @@ async def delete(ctx, *args):
     return moderator == ctx.message.author and str(reaction.emoji) == "⛔"
 
   if len(args) != 1 and len(args) != 2:
-    await ctx.send("Usage:\n'.d[elete] @user [# of messages to delete]")
+    await usage(ctx, "delete")
     return
 
-  user = await get_user(ctx, args[0], "Usage:\n'.d[elete] @user [# of messages to delete]")
+  user = await get_user(ctx, args[0], "delete")
   if user != None:
     msg_count = -1
     numeric = False
@@ -230,7 +255,7 @@ async def delete(ctx, *args):
         if not quiet_mode:
           await ctx.send(user.mention + ", your previous " + str(msg_count) + " messages are inappropriate!")
       except ValueError:
-        await ctx.send("Usage:\n'.d[elete] @user [# of messages to delete]")
+        await usage(ctx, "delete")
         return
     else:
       if not quiet_mode:
@@ -276,7 +301,7 @@ async def mute(ctx, *args):
       await ctx.send("You don't have permission to do that!")
     return
 
-  user = await get_user(ctx, args[0], "Usage: '.m[ute] @user [reason]")
+  user = await get_user(ctx, args[0], "mute")
   if user != None:
     role = discord.utils.get(user.guild.roles, name=mute_role)
     if len(args) == 2:
@@ -316,6 +341,7 @@ async def on_message(message):
 # runs upon loading the bot successfully
 @bot.event
 async def on_ready():
+  bot.remove_command("help")
   with open("blacklist.txt", "r") as blacklist_file: # hard-coded matching words
     for word in blacklist_file.readlines(): # load banned words
       blacklist[word.strip()] = 1
